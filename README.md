@@ -115,7 +115,7 @@ To split a dataset, use the following command:
 
 Split a CSV by city:
     ```sh
-    python3 -m src.scripts.python.dataset_splitter -p "/users/projects/somedata/" -e "csv" -c "city" --output-format "parquet"
+    python3 -m dataopstoolbox/dataset_splitter -p "/users/projects/somedata/" -e "csv" -c "city" --output-format "parquet"
     ```
 
 ## Logging
