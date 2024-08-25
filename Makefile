@@ -29,14 +29,12 @@ clean:
 ## Lint using flake8 and black (use `make format` to do formatting)
 .PHONY: lint
 lint:
-	flake8 dataopstoolbox
-	isort --check --diff --profile black dataopstoolbox
-	black --check --config pyproject.toml dataopstoolbox
+	ruff check --config pyproject.toml dataopstoolbox
 
 ## Format source code with black
 .PHONY: format
 format:
-	black --config pyproject.toml dataopstoolbox
+	ruff format --config pyproject.toml dataopstoolbox
 
 
 ## Download Data from storage system
@@ -69,10 +67,6 @@ create_environment:
 #################################################################################
 
 
-## Make Dataset
-.PHONY: data
-data: requirements
-	$(PYTHON_INTERPRETER) dataopstoolbox/dataset.py
 
 
 #################################################################################
