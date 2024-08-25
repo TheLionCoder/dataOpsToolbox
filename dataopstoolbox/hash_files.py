@@ -8,8 +8,8 @@ from loguru import logger
 from tqdm import tqdm
 from typing_extensions import Annotated
 
-from ..config import FileExtension
-from ..utils.utils import compute_hash, read_file_chunks
+from config import FileExtension
+from utils.utils import compute_hash, read_file_chunks
 
 app = typer.Typer()
 

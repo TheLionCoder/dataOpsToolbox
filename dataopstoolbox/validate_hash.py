@@ -4,7 +4,7 @@ from pathlib import Path
 
 import typer
 from loguru import logger
-from ..utils.utils import compute_hash, read_file_chunks
+from utils.utils import compute_hash, read_file_chunks
 from typing_extensions import Annotated
 
 app = typer.Typer()

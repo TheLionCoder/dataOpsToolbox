@@ -11,7 +11,7 @@ from loguru import logger
 from tqdm import tqdm
 from typing_extensions import Annotated
 
-from ..utils.utils import list_files
+from utils.utils import list_files
 
 app = typer.Typer()
 

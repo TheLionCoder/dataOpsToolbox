@@ -11,7 +11,7 @@ from tqdm import tqdm
 from typing_extensions import Annotated
 
 from config import FileExtension
-from ..utils.utils import list_files
+from utils.utils import list_files
 
 app = typer.Typer()
 
