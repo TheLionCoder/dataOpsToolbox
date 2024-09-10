@@ -11,7 +11,7 @@ from loguru import logger
 from tqdm import tqdm
 from typing_extensions import Annotated
 
-project_root: Path = Path(__file__).resolve().parents[2]
+project_root: Path = Path(__file__).resolve().parents[1]
 logger.opt(colors=True).info(f"Python version: {sys.version}")
 sys.path.append(project_root.as_posix())
 logger.opt(colors=True).debug(f"{project_root=}")
@@ -177,7 +177,8 @@ def process_file(
     else:
         query: pl.LazyFrame = lazy_df.filter(pl.col(category_col).is_not_null())
 
-    if category_col not in query.collect_schema().names():
+    schema: pl.Schema = query.collect_schema()
+    if category_col not in schema.names():
         logger.opt(colors=True).warning(
             f"Column {category_col} not found in {file_name}" f" skipping the file...."
         )
