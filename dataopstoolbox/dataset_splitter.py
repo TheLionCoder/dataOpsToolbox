@@ -1,6 +1,7 @@
 # *-* encoding: utf-8 *-*
 import concurrent.futures
 from enum import Enum
+from itertools import islice
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 import sys
@@ -109,7 +110,7 @@ def split_and_save_by_category(
 @pl.StringCache()
 def _extract_unique_categories(
     lazy_df: pl.LazyFrame, *, category_col: str
-) -> List[Optional[str]]:
+) -> List[str]:
     """
     Extract unique categories from the dataframe.
     :param lazy_df: LazyFrame to extract unique categories from
@@ -125,11 +126,46 @@ def _extract_unique_categories(
     )
 
 
-def process_file(
+def validate_schema(query: pl.lazyframe, *, category_col: str, file_name: str) -> bool:
+    """
+    Validate the schema of the lazy DataFrame.
+    :param query: pl.LazyFrame to validate
+    :param category_col: Column to split the files by
+    :param file_name: Name of the file that is being processed
+    :return: bool
+    """
+    schema: pl.Schema = query.collect_schema()
+    if category_col not in schema.names():
+        logger.opt(colors=True).warning(
+            f"Column {category_col} not found in {file_name}" f" skipping the file...."
+        )
+        return False
+    return True
+
+
+def load_data(
     file_path: Path,
-    output_dir: Path,
-    extension: str,
+    *,
     separator: str,
+    extension: str,
+) -> pl.LazyFrame:
+    """
+    Load data from the file.
+    :param file_path: Path to the input directory
+    :param separator: Separator for csv files
+    :param extension: File extension of the files to process
+    :return:
+    """
+    if extension in ["csv", "txt"]:
+        return pl.scan_csv(file_path, separator=separator, infer_schema=False)
+    else:
+        return pl.scan_parquet(file_path)
+
+
+def process_file(
+    query: pl.lazyframe,
+    file_name: str,
+    output_dir: Path,
     category_col: str,
     verbose: bool,
     make_dir: bool,
@@ -141,10 +177,9 @@ def process_file(
     """
     Process files in the input directory and split them by category
     and save them in the output directory.
-    :param file_path: Path to the input directory
+    :param query: pl.LazyFrame to process,
+    :param file_name: Name of the file to process
     :param output_dir: Path to the output directory
-    :param extension: File extension of the files to process
-    :param separator: Separator for csv files
     :param category_col: Column to split the files by
     :param verbose: Print verbose output
     :param make_dir: Make a directory for each category
@@ -154,38 +189,16 @@ def process_file(
     :param fill_null_value: Value to fill missing categories with,
     ignored if handle missing skipping
     """
-    read_functions: Dict[str, Callable] = {
-        FileExtension.csv: pl.scan_csv,
-        FileExtension.txt: pl.scan_csv,
-        FileExtension.parquet: pl.scan_parquet,
-    }
-
-    file_name: str = file_path.stem
-    read_function: Callable = read_functions.get(extension, pl.scan_csv)
-
-    if extension in ["csv", "txt"]:
-        lazy_df: pl.LazyFrame = read_function(
-            file_path, separator=separator, infer_schema=False
-        )
-    else:
-        lazy_df: pl.DataFrame = read_function(file_path)
 
     if fill_null_value is not None:
-        query: pl.LazyFrame = lazy_df.with_columns(
+        lazy_df: pl.LazyFrame = query.with_columns(
             pl.col(category_col).fill_null(fill_null_value)
         )
     else:
-        query: pl.LazyFrame = lazy_df.filter(pl.col(category_col).is_not_null())
-
-    schema: pl.Schema = query.collect_schema()
-    if category_col not in schema.names():
-        logger.opt(colors=True).warning(
-            f"Column {category_col} not found in {file_name}" f" skipping the file...."
-        )
-        return
+        lazy_df: pl.LazyFrame = query.filter(pl.col(category_col).is_not_null())
 
     categories: List[str] = _extract_unique_categories(
-        query, category_col=category_col, fill_null_value=fill_null_value
+        lazy_df, category_col=category_col
     )
     if verbose:
         logger.opt(colors=True).info(f"Splitting  {file_name}" f" in {categories}...")
@@ -197,7 +210,7 @@ def process_file(
 
     if output_format in ["csv", "txt"]:
         split_and_save_by_category(
-            query,
+            lazy_df,
             separator=output_separator,
             categories=categories,
             file_name=file_name,
@@ -209,7 +222,7 @@ def process_file(
         )
     else:
         split_and_save_by_category(
-            query,
+            lazy_df,
             categories=categories,
             file_name=file_name,
             category_col=category_col,
@@ -264,11 +277,22 @@ def main(
 ):
     try:
         if input_path.is_file():
+            file_name: str = input_path.stem
+            query: pl.LazyFrame = load_data(
+                input_path, separator=separator.value, extension=extension.value
+            )
+            valid_by: bool = validate_schema(
+                query, category_col=category_col, file_name=file_name
+            )
+            if not valid_by:
+                logger.opt(colors=True).warning(
+                    "Skipping file {file_name}...."
+                )
+                return
             process_file(
-                file_path=input_path,
+                query,
+                file_name=file_name,
                 output_dir=output_dir,
-                extension=extension.value,
-                separator=separator.value,
                 category_col=category_col,
                 verbose=verbose,
                 make_dir=make_dir,
@@ -277,8 +301,11 @@ def main(
                 output_separator=output_separator.value,
                 fill_null_value=fill_null_value,
             )
+            logger.opt(colors=True).info(
+                "Files Saved in {output_dir}..."
+            )
 
-        else:
+        if input_path.is_dir():
             files: List[Path] = list_files(
                 dir_path=input_path, file_extension=extension.value
             )
@@ -287,18 +314,28 @@ def main(
                     f"No files found in {input_path} with extension {extension.value}"
                 )
                 return
+            print(files)
 
             for file_path in tqdm(
-                files,
+                islice(files, None),
                 desc="Processing files",
                 colour="yellow",
             ):
                 logger.opt(colors=True).info(f"Reading file {file_path}...")
+                file_name: str = file_path.stem
+                query: pl.LazyFrame = load_data(
+                    file_path, separator=separator.value, extension=extension.value
+                )
+                valid_by: bool = validate_schema(
+                    query, category_col=category_col, file_name=file_name
+                )
+                if not valid_by:
+                    logger.opt(colors=True).warning(f"Skipping file {file_name}....")
+                    continue
                 process_file(
-                    file_path=file_path,
+                    query,
+                    file_name=file_name,
                     output_dir=output_dir,
-                    extension=extension.value,
-                    separator=separator.value,
                     category_col=category_col,
                     verbose=verbose,
                     make_dir=make_dir,
@@ -307,7 +344,7 @@ def main(
                     output_separator=output_separator.value,
                     fill_null_value=fill_null_value,
                 )
-        logger.opt(colors=True).info(f"files saved in" f" {output_dir}...")
+                logger.opt(colors=True).info(f"files saved in" f" {output_dir}...")
 
     except Exception as e:
         logger.opt(colors=True).error(f"{e}.")
