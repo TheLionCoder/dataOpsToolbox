@@ -314,7 +314,6 @@ def main(
                     f"No files found in {input_path} with extension {extension.value}"
                 )
                 return
-            print(files)
 
             for file_path in tqdm(
                 islice(files, None),
