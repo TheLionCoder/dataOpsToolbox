@@ -1,7 +1,6 @@
 # *-* encoding: utf-8 *-*
 import concurrent.futures
 from enum import Enum
-from itertools import islice
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 import sys
@@ -47,7 +46,7 @@ def save_category_files(
     save_path: Path = (
         output_dir.joinpath(category, f"{file_name}.{output_format}")
         if not append_category_to_file_name
-        else output_dir.joinpath(f"{file_name}{category}.{output_format}")
+        else output_dir.joinpath(f"{file_name}_{category}.{output_format}")
     )
     save_function(df, save_path, **kwargs)
 
@@ -285,9 +284,7 @@ def main(
                 query, category_col=category_col, file_name=file_name
             )
             if not valid_by:
-                logger.opt(colors=True).warning(
-                    "Skipping file {file_name}...."
-                )
+                logger.opt(colors=True).warning("Skipping file {file_name}....")
                 return
             process_file(
                 query,
@@ -301,22 +298,11 @@ def main(
                 output_separator=output_separator.value,
                 fill_null_value=fill_null_value,
             )
-            logger.opt(colors=True).info(
-                "Files Saved in {output_dir}..."
-            )
+            logger.opt(colors=True).info("Files Saved in {output_dir}...")
 
         if input_path.is_dir():
-            files: List[Path] = list_files(
-                dir_path=input_path, file_extension=extension.value
-            )
-            if not files:
-                logger.opt(colors=True).error(
-                    f"No files found in {input_path} with extension {extension.value}"
-                )
-                return
-
             for file_path in tqdm(
-                islice(files, None),
+                list_files(dir_path=input_path, file_extension=extension.value),
                 desc="Processing files",
                 colour="yellow",
             ):
