@@ -8,6 +8,7 @@ import sys
 import polars as pl
 import typer
 from loguru import logger
+from polars import LazyFrame
 from tqdm import tqdm
 from typing_extensions import Annotated
 
@@ -27,7 +28,7 @@ class HandleMissing(str, Enum):
     separate = "separate"
 
 
-def save_category_files(
+def _save_category_files(
     category: str,
     filtered_lazy_df: pl.LazyFrame,
     category_col: str,
@@ -51,7 +52,7 @@ def save_category_files(
     save_function(df, save_path, **kwargs)
 
 
-def split_and_save_by_category(
+def _split_and_save_by_category(
     lazy_df: pl.LazyFrame,
     *,
     categories: List[str],
@@ -64,7 +65,7 @@ def split_and_save_by_category(
     **kwargs,
 ) -> None:
     """
-    Split the datarame by category and save the files in the output directory.
+    Split the dataframe by category and save the files in the output directory.
     :param lazy_df: LazyFrame to split
     :param categories: List of categories to split in the dataframe
     :param file_name: Name of the file to save
@@ -84,7 +85,7 @@ def split_and_save_by_category(
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
             executor.submit(
-                save_category_files,
+                _save_category_files,
                 category,
                 lazy_df,
                 category_col,
@@ -125,7 +126,7 @@ def _extract_unique_categories(
     )
 
 
-def validate_schema(query: pl.lazyframe, *, category_col: str, file_name: str) -> bool:
+def _validate_schema(query: pl.lazyframe, *, category_col: str, file_name: str) -> bool:
     """
     Validate the schema of the lazy DataFrame.
     :param query: pl.LazyFrame to validate
@@ -142,7 +143,7 @@ def validate_schema(query: pl.lazyframe, *, category_col: str, file_name: str) -
     return True
 
 
-def load_data(
+def _load_data(
     file_path: Path,
     *,
     separator: str,
@@ -152,7 +153,7 @@ def load_data(
     Load data from the file.
     :param file_path: Path to the input directory
     :param separator: Separator for csv files
-    :param extension: File extension of the files to process
+    :param extension: a File extension of the files to process
     :return:
     """
     if extension in ["csv", "txt"]:
@@ -161,7 +162,22 @@ def load_data(
         return pl.scan_parquet(file_path)
 
 
-def process_file(
+def _fill_null_value(query: LazyFrame, *,
+                    input_col: str,
+                    value: str) -> LazyFrame:
+    """
+    Fill missing values in the category column
+    :param query: LazyFrame to process
+    :param input_col: Column to fill missing values in
+    :param value: String to fill missing values with
+    :return: lazy frame
+    """
+    return query.with_columns(
+        pl.col([input_col]).fill_null(pl.lit(value))
+    )
+
+
+def _process_file(
     query: pl.lazyframe,
     file_name: str,
     output_dir: Path,
@@ -189,16 +205,15 @@ def process_file(
     ignored if handle missing skipping
     """
 
-    if fill_null_value is not None:
-        lazy_df: pl.LazyFrame = query.with_columns(
-            pl.col(category_col).fill_null(fill_null_value)
-        )
+    if fill_null_value:
+        lazy_df: LazyFrame = _fill_null_value(query, input_col=category_col, value=fill_null_value)
     else:
         lazy_df: pl.LazyFrame = query.filter(pl.col(category_col).is_not_null())
 
     categories: List[str] = _extract_unique_categories(
         lazy_df, category_col=category_col
     )
+
     if verbose:
         logger.opt(colors=True).info(f"Splitting  {file_name}" f" in {categories}...")
 
@@ -208,7 +223,7 @@ def process_file(
             fout_dir.mkdir(parents=True, exist_ok=True)
 
     if output_format in ["csv", "txt"]:
-        split_and_save_by_category(
+        _split_and_save_by_category(
             lazy_df,
             separator=output_separator,
             categories=categories,
@@ -220,7 +235,7 @@ def process_file(
             append_category_to_file_name=not make_dir,
         )
     else:
-        split_and_save_by_category(
+        _split_and_save_by_category(
             lazy_df,
             categories=categories,
             file_name=file_name,
@@ -277,16 +292,16 @@ def main(
     try:
         if input_path.is_file():
             file_name: str = input_path.stem
-            query: pl.LazyFrame = load_data(
+            query: pl.LazyFrame = _load_data(
                 input_path, separator=separator.value, extension=extension.value
             )
-            valid_by: bool = validate_schema(
+            valid_by: bool = _validate_schema(
                 query, category_col=category_col, file_name=file_name
             )
             if not valid_by:
                 logger.opt(colors=True).warning("Skipping file {file_name}....")
                 return
-            process_file(
+            _process_file(
                 query,
                 file_name=file_name,
                 output_dir=output_dir,
@@ -308,16 +323,16 @@ def main(
             ):
                 logger.opt(colors=True).info(f"Reading file {file_path}...")
                 file_name: str = file_path.stem
-                query: pl.LazyFrame = load_data(
+                query: pl.LazyFrame = _load_data(
                     file_path, separator=separator.value, extension=extension.value
                 )
-                valid_by: bool = validate_schema(
+                valid_by: bool = _validate_schema(
                     query, category_col=category_col, file_name=file_name
                 )
                 if not valid_by:
                     logger.opt(colors=True).warning(f"Skipping file {file_name}....")
                     continue
-                process_file(
+                _process_file(
                     query,
                     file_name=file_name,
                     output_dir=output_dir,
