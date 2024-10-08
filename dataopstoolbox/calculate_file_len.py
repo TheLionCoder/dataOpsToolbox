@@ -11,12 +11,11 @@ from tqdm import tqdm
 from typing_extensions import Annotated
 
 from config import FileExtension
-from utils.utils import list_files
 
 app = typer.Typer()
 
 
-def calculate_file_len(file_path: Path, has_header: bool) -> int:
+def _calculate_file_len(file_path: Path, has_header: bool) -> int:
     """Calculate the number of lines in a file
     :param file_path: Path to the file
     :param has_header: Whether the file has a header.
@@ -32,6 +31,17 @@ def calculate_file_len(file_path: Path, has_header: bool) -> int:
             continue
     raise ValueError(f"Unable to decode file {file_path}")
 
+def _get_file_name(file: Path, slice_name_start: Optional[int],
+                   slice_name_end: Optional[int]) -> str:
+    """
+    Get the file name
+    :param file: Path to the file
+    :param slice_name_start: Index to start the slice
+    :param slice_name_end: Index to end the slice
+    :return: file name
+    """
+    file_name: str = file.stem.upper()
+    return file_name[slice_name_start: slice_name_end]
 
 @app.command()
 def main(
@@ -83,27 +93,16 @@ def main(
         logger.opt(colors=True).info(
             f"Listing files in {dir_path} with extension: {file_extension}."
         )
-        files: List[Path] = list_files(
-            dir_path=dir_path, file_extension=file_extension.value
-        )
-        if not files:
-            logger.opt(colors=True).error(
-                f"No files found in {dir_path} with extension {file_extension.value}"
-            )
         for file in tqdm(
-            files,
+            dir_path.rglob(f"*.{file_extension.value}"),
             desc="Listing files",
             colour="yellow",
             dynamic_ncols=True,
         ):
-            file_name = (
-                file.stem.upper()
-                if slice_name_start is None and slice_name_end is None
-                else file.stem.upper()[slice_name_start:slice_name_end]
-            )
+            file_name = _get_file_name(file, slice_name_start, slice_name_end)
             file_dir = file.parents[1].stem
             file_parent = file.parent.stem
-            file_len = calculate_file_len(file, has_header)
+            file_len = _calculate_file_len(file, has_header)
 
             key = (file_name, file_dir, file_parent)
             data[key]["file_count"] += 1
@@ -120,7 +119,7 @@ def main(
             pl.sum("file_count"), pl.sum("file_len")
         )
 
-        df: pl.DataFrame = raw_data if include_main_dir else grouped_df
+        df: pl.DataFrame = grouped_df if include_main_dir else raw_data
 
         if verbose:
             logger.opt(colors=True).info(df)
